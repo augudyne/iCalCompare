@@ -1,0 +1,20 @@
+﻿extends layout
+
+block content
+    head
+        title Register
+    body
+        form(name="registerForm" method="post" action="/register")
+            div
+                label Username:
+                    input(type="text" name="username" required)
+            div
+                label Password: 
+                    input(type="password" name="password" required)
+            div
+                label Confirm Password:
+                    input(type="password" name="confirmPassword" required)
+            div
+                    input(type="submit" value="Register")
+        if errorMsg
+        p= errorMsg

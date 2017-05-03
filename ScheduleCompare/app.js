@@ -3,12 +3,17 @@ var express = require('express');
 var path = require('path');
 var favicon = require('serve-favicon');
 var logger = require('morgan');
+
+//use sessions and cookies
 var cookieParser = require('cookie-parser');
 var bodyParser = require('body-parser');
-
+//server routing
 var routes = require('./routes/index');
 var users = require('./routes/users');
-
+var login = require('./routes/login');
+var dashboard = require('./routes/dashboard');
+var register = require('./routes/register');
+//use express framework
 var app = express();
 
 // view engine setup
@@ -23,8 +28,12 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
+//use routes
 app.use('/', routes);
 app.use('/users', users);
+app.use('/login', login);
+app.use('/dashboard', dashboard);
+app.use('/register', register);
 
 // catch 404 and forward to error handler
 app.use(function (req, res, next) {

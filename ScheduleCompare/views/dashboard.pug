@@ -1,0 +1,21 @@
+﻿extends layout
+
+block content
+  h1= welcomeMsg
+  body
+    form(id="myform" method="post" action="/dashboard"  onsubmit="return validateFile()" enctype="multipart/form-data")
+        div
+            input(id="fileUpload" name="file" type="file")
+            input(id="submitFile" type="submit" value="Upload")
+        br
+        div
+            textarea(id="text" rows="100" cols="100") #{fileAsJSON} 
+        if fileAsJSON
+        p= fileAsJSON
+
+  script.
+      var validateFile = function (){
+        if(!($('#fileUpload').val().endsWith(".ics"))){
+        return false;
+        }
+      };
