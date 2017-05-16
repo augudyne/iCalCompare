@@ -6,3 +6,17 @@
 a {
     color: #00B7FF;
 }
+
+.flexContainer{
+    display:flex;
+    align-content:center;
+}
+.scheduleUploadContainer{
+    width:auto; 
+}
+
+.friendsListContainer{
+    margin-left:10px;
+    margin-right:10px;
+    flex-grow:1;
+}

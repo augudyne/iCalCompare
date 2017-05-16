@@ -17,26 +17,93 @@ router.use(session({
 }));
 
 var getConnection = function () {
-    var connection = mysql.createConnection({
+    let myConn = mysql.createConnection({
         host: 'localhost',
         user: 'augudyne',
         password: 'patch1997',
         database: 'msfthacks'
     });
-
-    return connection;
+    return myConn;
 };
 /* GET home page. */
 router.get('/', function (req, res) {
     if (req.session && req.session.user) {
-        res.render('dashboard', {
-            welcomeMsg: 'Welcome ' + req.session.user
+        //render the dashboard
+        // - UserID
+        // - ListOfFriends as array
+
+
+        //get listOfFriends
+        let listOfFriendsPromise = getListOfFriends(req.session.user);
+        listOfFriendsPromise.then(function (listOfFriends) {
+            console.log("Rendering list of friends: " + listOfFriends);
+            res.render('dashboard', {
+                welcomeMsg: 'Welcome ' + req.session.user,
+                listOfFriends: listOfFriends
+            });
         });
+
     } else {
         res.redirect("/");
     }
 
 });
+/**
+ * Gets the list of friends associated with [userID] by looking at src and dst 
+ * @param {any} userID
+ * @returns listOfFriends :listof String
+ */
+function getListOfFriends(userID) {
+
+    return new Promise(function (resolved, reject) {
+        //get the list of friends
+        var GET_FRIENDS_LIST = "SELECT(destID) FROM friends_list WHERE sourceID=?";
+        var VALUE = userID;
+        performQuery(GET_FRIENDS_LIST, VALUE).then(function (results) {
+            var listOfFriends = [];
+            if (results.length == 0) console.log("No rows returned");
+            console.log(results.length + " friends were found");
+            for (var i = 0; i < results.length; i++) {
+                let resultRow = results[i];
+                console.log(resultRow.destID);
+                listOfFriends.push(parseInt(resultRow.destID));
+            }
+            resolved(listOfFriends);
+        });
+    }).then(function (listOfFriends) {
+        //add the search for key being in the dest column
+        return new Promise(function (resolved, reject) {
+            let GET_FRIENDS_LIST = "SELECT(sourceID) from friends_list WHERE destID = ?";
+            let VALUES = [userID];
+            performQuery(GET_FRIENDS_LIST, VALUES).then(function (results) {
+                for (var resultRow in results) {
+                    console.log(resultRow.toString());
+                    listOfFriends.push(parseInt(resultRow.toString()));
+                }
+                resolved(listOfFriends);
+            });
+        });
+    }).then(function (listOfFriends) {
+        console.log("listOfFriends in third promise: " + listOfFriends);
+            var promisesArray = [];
+            for (var i = 0; i < listOfFriends.length; i++) {
+                promisesArray.push(getUsernameFromID(listOfFriends[i]));
+            }
+            return promisesArray;
+        }).then(function (stringUsernames) {
+            return Promise.all(stringUsernames);
+        });
+}
+
+function getUsernameFromID(userID) {
+    console.log("Getting username from ID: " + userID);
+    let USERNAME_QUERY = "SELECT `username` FROM `users` WHERE id = ?";
+    let VALUES = [userID];
+    return performQuery(USERNAME_QUERY, VALUES).then(function (result) {
+        console.log("Got Username: " , result[0].username);
+        return result[0].username;
+    }).catch(console.err);
+}
 
 /* Handle File Upload */
 router.post('/', upload.single('file'), function (req, res) {
@@ -226,7 +293,199 @@ router.post('/', upload.single('file'), function (req, res) {
     });
 });
 
+/* Handle Add Friend Search Query*/
+router.post('/addFriend', function (req, res) {
+    var username = req.body.searchName;
+    let results = getResultsFromUsernameQuery(username).then(function (results) {
+        console.log(results);
+        if (results.length == 0 || results[0]['id'] == req.session.user) {
+            //no user found...inform the display by setting notFound to true;
+            console.log("No other user with name: " + username + " was found");
+            res.render('dashboard', {
+                welcomeMsg: 'Welcome ' + req.session.user,
+                searchMsg: "No other user found with username " + username
+            });
+        } else {
+            res.render('dashboard', {
+                welcomeMsg: "Welcome " + req.session.user,
+                foundUser: results[0]['username'].toString(),
+                founderUserID: results[0]['id']
+            });
+        }
+    })
+})
+
+//performs an sql query for the user id, returning the rows
+function getResultsFromUsernameQuery (username) {
+    let myConn = getConnection();
+    var QUERY_FOR_PERSON = "SELECT id, username FROM users WHERE username=?";
+
+    return new Promise(function (resolve, reject) {
+        myConn.query(QUERY_FOR_PERSON, username, function (err, results) {
+            if (!!err) {
+                reject(err);
+            }
+            resolve(results);
+        });
+    })
+}
 
 
+router.post('/sendFriendRequest', function (req, res) {
+    var friendToAddName = req.body.foundUsername;
+    const friendToAddID = req.body.foundUserID;
+    const userID = req.session.user;
+    console.log(friendToAddName, friendToAddID, userID);
+    let bool_hasReciprocalRequest = hasReciprocalRequest(userID, friendToAddID);
+    if (bool_hasReciprocalRequest) {
+        //confirm the friendship
+        addFriendship(formatPairing(userID, friendToAddID));
+        //delete the reciprocal request
+        removeRequest(friendToAddID, userID);
+
+        //render the screen
+        renderReciprocalRequestExists(res, userID);
+    } else {
+        renderFriendRequestSent(res, userID);
+    }
+});
+
+function removeRequest(sourceID, destID) {
+    let REMOVE_REQUEST_QUERY = "DELETE FROM friend_request_list WHERE sourceID = ? AND destID = ?";
+    let VALUES = [sourceID, destID];
+    performQuery(REMOVE_REQUEST_QUERY, VALUES).then(console.log("Removed request of " + sourceID + " to " + destID + " comepleted"));
+}
+
+/**
+ * Returns an object with 2 fields: min{firstID, secondID}, max{firstID, secondID}
+ * @param {any} firstID
+ * @param {any} secondID
+ * @returns an object with 2 fields, min and max
+ */
+function formatPairing(firstID, secondID) {
+    if (firstID > secondID) {
+        return { sourceID: secondID, destID: firstID };
+    } else
+        return { sourceID: firstID, destID: secondID };
+}
+
+/**
+ *  Determine if friend_list database contains a friendship pair
+ * @param {int} srcID the id of the person making the request
+ * @param {int} dstID the id of the person receving the request
+ * @param {boolean} true if the friendship pairing was found, false otherwise
+ */
+function containsFriendship(srcID, dstID) {
+    //use from:min  to:max to perform a single query
+    //locally defined promise generator
+    function getFriendshipPairing(formattedPairing) {
+        return new Promise(function (resolve, reject) {
+            let myConn = getConnection();
+            let SELECT_PAIR_FROM_LIST = "SELECT * FROM `friends_list` WHERE sourceID = ? AND destID = ?";
+            SELECT_PAIR_FROM_LIST = myConn.format(SELECT_PAIR_FROM_LIST, [formattedPairing["min"], formattedPairing["max"]]);
+
+            myConn.query(SELECT_PAIR_FROM_LIST, function (err, results, fields) {
+                console.log(fields);
+                if (!!err) {
+                    console.log(err);
+                    reject(new Error("SQL ERROR in getFriendshipPairing()"));
+                }
+
+                resolve(results);
+            });
+        })
+    }
+
+    //function control flow
+    let formattedPairing = formatPairing(firstID, secondID);
+    let results = getFriendshipPairing(formatPairing);
+    results.then(function (results) {
+        if (results.length == 0) {
+            return false;
+        } else return true;
+    }).catch(console.error);
+}
+
+/**
+ * 
+ * @param {Object} formatted pairing {sourceID: <param1>, destID: <param2>};
+ */
+function addFriendship(friendPairing) {
+    console.log("Confirming friendship between ", friendPairing.sourceID, " and ", friendPairing.destID);
+    //check if contains, if it does, then don't do anything, otherwise we will '
+    let ADD_FRIENDSHIP_QUERY = "INSERT INTO friends_list (`sourceID`, `destID`) SELECT * FROM (SELECT ?, ?) AS tmp\
+                                WHERE NOT EXISTS (SELECT 1 FROM friends_list WHERE sourceID = ? AND destID = ?) LIMIT 1";
+    let VALUES = [friendPairing.sourceID, friendPairing.destID, friendPairing.sourceID, friendPairing.destID];
+    performQuery(ADD_FRIENDSHIP_QUERY, VALUES).then(console.log("Successfuly added friendship")).catch(console.err);
+ }; 
+
+
+function performQuery(queryString, data) {
+    return new Promise(function (resolve, reject) {
+        let myConn = getConnection();
+        queryString = myConn.format(queryString, data);
+        myConn.query(queryString, function (err, results, fields) {
+            if (!!err) {
+                console.log(err);
+                reject(new Error("Unable to perform sql query: " + queryString));
+            } 
+
+            resolve(results);            
+        });
+    });
+}
+
+/**
+ * Checks if a reciprocal friend request exists, in which case we will add the friendship and remove the request
+ * Otherwise we will add the request to the table
+ * @param {any} userID
+ * @param {any} friendToAddID
+ * @returns true if reciprocal request exists, false otherwise
+ */
+function hasReciprocalRequest(userID, friendToAddID) {
+    let TAG = "checkIfReciprocalRequestOrAdd: ";
+    console.log(TAG + "Looking for " + friendToAddID + " request to add " + userID);
+    function getReciprocalQueryPromise(srcID, dstID) {
+        //returns the results of the sql query for reciprocal request
+        return new Promise(function (resolve, reject) {
+            let myConn = getConnection();
+            var CONTAINS_RECIPROCAL = "SELECT * FROM `friend_request_list` WHERE destID = ? AND sourceID = ?";
+            CONTAINS_RECIPROCAL = myConn.format(CONTAINS_RECIPROCAL, [userID, friendToAddID]);
+            myConn.query(CONTAINS_RECIPROCAL, function (err, rows, fields) {
+                if (!!err) {
+                    console.log(err);
+                    reject(new Error("Error in " + TAG));
+                }
+                resolve(rows);
+            });
+        });
+    }
+    let results = getReciprocalQueryPromise(userID, friendToAddID);
+
+    return results.then(function (rows) {      
+        if (rows.length == 0) {
+            return false;
+        } else return true;
+    });         
+}
+
+function renderSQLErrorOnAdd(res, userID) {
+    res.render('dashboard', {
+        welcomeMsg: "Welcome " + userID,
+        searchMsg: "An SQL error occured trying to send friend request"
+    });
+}
+function renderFriendRequestSent(res, userID) {
+    res.render('dashboard', {
+        welcomeMsg: "Welcome " + userID,
+        searchMsg: "Friend Request Sent"
+    });
+}
+function renderReciprocalRequestExists(res, userID) {
+    res.render('dashboard', {
+        welcomeMsg: "Welcome " + userID,
+        searchMsg: "You both want to be friends! Confirming friendship now..."
+    });
+}
 
 module.exports = router;
